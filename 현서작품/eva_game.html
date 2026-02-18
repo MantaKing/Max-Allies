@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Project E: AT-Field System</title>
+    <style>
+        /* --- 기본 스타일 (이전과 동일) --- */
+        body { margin: 0; padding: 0; background-color: #111; color: #fff; font-family: 'Courier New', monospace; overflow: hidden; user-select: none; }
+        h1, h2, h3 { text-transform: uppercase; margin: 5px 0; color: #ffa500; text-shadow: 0 0 5px #ffa500; }
+        .screen { display: none; width: 100vw; height: 100vh; position: absolute; top: 0; left: 0; flex-direction: column; align-items: center; justify-content: center; background: #222; }
+        .active { display: flex; }
+        button { background: #333; border: 2px solid #ffa500; color: #ffa500; padding: 10px 20px; font-size: 1.2rem; cursor: pointer; margin-top: 20px; transition: 0.3s; }
+        button:hover { background: #ffa500; color: #000; box-shadow: 0 0 15px #ffa500; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; box-shadow: none; }
+
+        /* --- 캐릭터 선택 --- */
+        #char-select-container { display: flex; gap: 20px; width: 90%; max-width: 1000px; height: 50%; }
+        .char-card {
+            flex: 1; background: #2b2b2b; border: 4px solid #444; border-radius: 10px;
+            display: flex; flex-direction: column; align-items: center; padding: 20px;
+            transition: 0.3s; cursor: pointer; text-align: center; position: relative;
+        }
+        .char-card:hover { transform: translateY(-10px); border-color: #ffa500; }
+        .char-card.selected { border-color: #d00; box-shadow: 0 0 20px #d00; background: #3e3b32; }
+        .char-icon { font-size: 4rem; margin-bottom: 15px; }
+
+        /* --- 스킬 트리 --- */
+        #skill-container { position: relative; width: 800px; height: 500px; background: #b8a682; border-radius: 10px; padding: 20px; color: #3e3b32; border: 4px solid #5c5542; }
+        .node { width: 45px; height: 45px; border-radius: 50%; background: #555; position: absolute; border: 3px solid #3e3b32; cursor: pointer; display: flex; justify-content: center; align-items: center; font-weight: bold; color: #fff; z-index: 2; transition: 0.2s; box-shadow: 2px 2px 5px rgba(0,0,0,0.5); }
+        .node:hover { transform: scale(1.15); border-color: #fff; }
+        .node.active { background: #d00; border-color: #ff0; color: #ff0; }
+        .line { position: absolute; height: 6px; background: #5c5542; z-index: 1; transform-origin: 0 50%; box-shadow: 1px 1px 3px rgba(0,0,0,0.3); }
+
+        /* --- 게임 HUD (업데이트됨) --- */
+        #hud-top { 
+            position: absolute; top: 20px; left: 20px; 
+            font-size: 1.5rem; font-weight: bold; 
+            text-shadow: 1px 1px 2px #000;
+            display: flex; flex-direction: column; gap: 5px;
+        }
+        .hud-label { display: inline-block; width: 110px; }
+        #atf-display { color: #ffa500; /* 주황색 */ }
+        #hp-display { color: #ff0000; /* 빨간색 */ }
+
+        /* 하단 게이지 및 메시지 */
+        #gauge-container { position: absolute; bottom: 30px; left: 50%; transform: translateX(-50%); width: 400px; height: 30px; background: #333; border: 2px solid #fff; border-radius: 15px; overflow: hidden; box-shadow: 0 0 10px #000; }
+        #gauge-bar { width: 0%; height: 100%; background: linear-gradient(90deg, #ff8c00, #ff0000); transition: width 0.2s; }
+        #gauge-text { position: absolute; width: 100%; text-align: center; line-height: 30px; color: #fff; font-weight: bold; text-shadow: 1px 1px 2px #000; top:0; }
+        #ult-ready-msg { position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%); color: #ff0000; font-size: 2.5rem; font-weight: bold; text-shadow: 0 0 20px #ff0000; display: none; animation: blink 0.2s infinite alternate; }
+        @keyframes blink { from { opacity: 0.2; } to { opacity: 1; } }
+
+    </style>
+</head>
+<body>
+
+    <div id="screen-select" class="screen active">
+        <h2>PILOT SELECTION</h2>
+        <p>기체를 선택하십시오.</p>
+        <div id="char-select-container">
+            </div>
+        <button id="btn-to-skill" disabled>스킬트리 설정 (NEXT)</button>
+    </div>
+
+    <div id="screen-skill" class="screen">
+        <div id="skill-container">
+            <h3 style="margin:0; color:#3e3b32; text-shadow:none;">SKILL TREE SYSTEM</h3>
+            <div style="font-size: 1.2rem; margin-bottom: 10px;">가용 포인트 (SP): <span id="sp-display" style="color:#d00; font-weight:bold;">20</span></div>
+            <div id="skill-desc" style="height: 30px; color: #3e3b32; font-weight:bold; background: rgba(255,255,255,0.3); padding: 5px; border-radius: 5px;">마우스를 올려 스킬 정보를 확인하세요.</div>
+            <div id="tree-area" style="position:relative; width:100%; height:400px; margin-top: 20px;"></div>
+        </div>
+        <button onclick="launchGame()">LAUNCH (출격)</button>
+    </div>
+
+    <div id="screen-game" class="screen" style="background: #333;">
+        <canvas id="game-canvas"></canvas>
+        <div id="hud-top">
+            <div id="atf-display"><span class="hud-label">AT FIELD:</span> <span id="atf-val">100</span></div>
+            <div id="hp-display"><span class="hud-label">HULL HP:</span> <span id="hp-val">100</span></div>
+            <div style="margin-top: 10px; font-size: 1.2rem;">SCORE: <span id="score-val">0</span></div>
+        </div>
+        <div id="ult-ready-msg">PRESS 'Z' TO AWAKEN!</div>
+        <div id="gauge-container">
+            <div id="gauge-bar"></div>
+            <div id="gauge-text">SYNC RATE: 0%</div>
+        </div>
+    </div>
+
+<script>
+    // === 1. 데이터 설정 (기본 스탯에 atField 추가) ===
+    const UNITS = [
+        { 
+            id: 'u01', name: '초호기 (Test Type-01)', 
+            desc: '밸런스형. [Z] 각성: 롱기누스의 창 (무적/광역)',
+            icon: '🟣', color: '#6a0dad', subColor: '#00ff00', 
+            // atField 스탯 추가
+            stats: { hp: 100, atField: 100, speed: 4, damage: 15, rate: 15, range: 400 },
+            ultType: 'awakening'
+        },
+        { 
+            id: 'u00', name: '0호기 (Proto Type-00)', 
+            desc: '방어형. [Z] 야시마 작전: 양전자포 (초장거리 관통)',
+            icon: '🛡️', color: '#ffa500', subColor: '#fff', 
+            // 방어형이라 AT필드 높게 설정
+            stats: { hp: 150, atField: 200, speed: 3, damage: 20, rate: 35, range: 250 },
+            ultType: 'positron'
+        },
+        { 
+            id: 'u02', name: '2호기 (Production-02)', 
+            desc: '고기동형. [Z] THE BEAST (공속/이속 폭발)',
+            icon: '🦁', color: '#d00000', subColor: '#ffaa00', 
+            stats: { hp: 80, atField: 80, speed: 5.5, damage: 25, rate: 15, range: 100 },
+            ultType: 'beast'
+        }
+    ];
+
+    // 스킬 트리에 AT필드 관련 노드 추가
+    const SKILLS = [
+        { id:0, x:350, y:350, label:'CORE', cost:0, stat:null, val:0, next:[1,2,3] },
+        // 1단계
+        { id:1, x:250, y:250, label:'ATK', cost:3, stat:'damage', val:5, next:[4] },
+        { id:2, x:350, y:250, label:'HP', cost:3, stat:'hp', val:30, next:[5, 7] }, // HP 노드에서 ATF로 분기
+        { id:3, x:450, y:250, label:'SPD', cost:3, stat:'speed', val:1, next:[6] },
+        // 2단계
+        { id:4, x:150, y:150, label:'ATK+', cost:5, stat:'damage', val:10, next:[] },
+        { id:5, x:300, y:150, label:'HP+', cost:5, stat:'hp', val:50, next:[] },
+        { id:6, x:550, y:150, label:'SPD+', cost:5, stat:'speed', val:2, next:[] },
+        // AT 필드 특화 노드 추가
+        { id:7, x:400, y:150, label:'ATF', cost:5, stat:'atField', val:60, next:[8] },
+        { id:8, x:400, y:50,  label:'ATF++', cost:7, stat:'atField', val:100, next:[] },
+    ];
+
+    let state = {
+        unitIdx: -1,
+        sp: 20,
+        skills: [0],
+        gameStats: {}, // hp, maxHp, atField, maxAtField 등이 들어감
+        score: 0,
+        gauge: 0,
+        isUlt: false,
+        ultTimer: 0,
+        hitFlashTimer: 0, // 피격 효과용 타이머
+        hitType: null // 'atf' or 'hp'
+    };
+
+    // === 2. UI 및 시스템 로직 ===
+    // (캐릭터 선택 및 스킬 트리 그리기 로직은 이전과 동일하여 축약)
+    const selectContainer = document.getElementById('char-select-container');
+    UNITS.forEach((u, i) => {
+        const d = document.createElement('div');
+        d.className = 'char-card';
+        d.innerHTML = `<div class="char-icon">${u.icon}</div><h3 style="color:${u.color}">${u.name}</h3><p>${u.desc}</p>`;
+        d.onclick = () => {
+            document.querySelectorAll('.char-card').forEach(c=>c.classList.remove('selected'));
+            d.classList.add('selected');
+            state.unitIdx = i;
+            document.getElementById('btn-to-skill').disabled = false;
+        }
+        selectContainer.appendChild(d);
+    });
+
+    document.getElementById('btn-to-skill').onclick = () => {
+        document.querySelector('.active').classList.remove('active');
+        document.getElementById('screen-skill').classList.add('active');
+        renderTree();
+    };
+
+    function renderTree() {
+        const area = document.getElementById('tree-area'); area.innerHTML = '';
+        SKILLS.forEach(s => {
+            s.next.forEach(nid => {
+                const n = SKILLS.find(x=>x.id===nid); const l = document.createElement('div'); l.className = 'line';
+                const dist = Math.hypot(n.x-s.x, n.y-s.y); const ang = Math.atan2(n.y-s.y, n.x-s.x)*180/Math.PI;
+                l.style.width = (dist-40)+'px'; l.style.left = (s.x+22)+'px'; l.style.top = (s.y+22)+'px'; l.style.transform = `rotate(${ang}deg) translateX(20px)`;
+                area.appendChild(l);
+            });
+        });
+        SKILLS.forEach(s => {
+            const b = document.createElement('div'); b.className = `node ${state.skills.includes(s.id)?'active':''}`;
+            b.style.left = s.x+'px'; b.style.top = s.y+'px'; b.innerText = s.label;
+            b.onclick = () => learnSkill(s);
+            b.onmouseover = () => document.getElementById('skill-desc').innerText = `${s.label} | 비용: ${s.cost} SP | 효과: ${s.stat ? s.stat.toUpperCase() + ' +' + s.val : '기본'}`;
+            area.appendChild(b);
+        });
+        document.getElementById('sp-display').innerText = state.sp;
+    }
+
+    function learnSkill(s) {
+        if(state.skills.includes(s.id)) return;
+        let parentLearned = false;
+        SKILLS.forEach(p => { if(p.next.includes(s.id) && state.skills.includes(p.id)) parentLearned=true; });
+        if(parentLearned && state.sp >= s.cost) { state.sp -= s.cost; state.skills.push(s.id); renderTree(); }
+    }
+
+    // === 게임 시작 및 데이터 초기화 ===
+    function launchGame() {
+        const base = UNITS[state.unitIdx].stats;
+        // 기본 스탯 복사 및 최대치 설정
+        state.gameStats = { ...base, maxHp: base.hp, maxAtField: base.atField };
+        
+        // 스킬 적용
+        SKILLS.forEach(s => {
+            if(state.skills.includes(s.id) && s.stat) {
+                state.gameStats[s.stat] += s.val;
+            }
+        });
+        // 스킬 적용 후 최대치 갱신
+        state.gameStats.maxHp = state.gameStats.hp;
+        state.gameStats.maxAtField = state.gameStats.atField;
+
+        updateHud(); // 초기 HUD 업데이트
+        document.getElementById('screen-skill').classList.remove('active');
+        document.getElementById('screen-game').classList.add('active');
+        startGameLoop();
+    }
+
+    // === HUD 업데이트 함수 ===
+    function updateHud() {
+        document.getElementById('atf-val').innerText = Math.floor(state.gameStats.atField) + ' / ' + state.gameStats.maxAtField;
+        document.getElementById('hp-val').innerText = Math.floor(state.gameStats.hp) + ' / ' + state.gameStats.maxHp;
+        document.getElementById('score-val').innerText = state.score;
+        
+        const bar = document.getElementById('gauge-bar'); const txt = document.getElementById('gauge-text'); const msg = document.getElementById('ult-ready-msg');
+        bar.style.width = state.gauge + '%';
+        txt.innerText = `SYNC RATE: ${Math.floor(state.gauge)}%`;
+        msg.style.display = (state.gauge >= 100) ? 'block' : 'none';
+    }
+
+    // === 핵심: 데미지 처리 로직 (AT 필드 -> HP 순서) ===
+    function playerHit(damage) {
+        if(state.isUlt && UNITS[state.unitIdx].ultType === 'awakening') return; // 각성 중 무적
+
+        state.hitFlashTimer = 10; // 피격 효과 타이머 (프레임 단위)
+
+        if (state.gameStats.atField > 0) {
+            // 1. AT 필드가 남아있을 때
+            state.hitType = 'atf'; // AT필드 피격 효과
+            state.gameStats.atField -= damage;
+            if (state.gameStats.atField < 0) {
+                // 필드 깨짐, 남은 데미지를 HP로 넘김
+                state.gameStats.hp += state.gameStats.atField; // atField가 음수이므로 더하면 빠짐
+                state.gameStats.atField = 0;
+                state.hitType = 'hp'; // 필드가 깨지면서 본체도 맞았으므로 HP 피격 효과로 변경
+            }
+        } else {
+            // 2. AT 필드가 없을 때 (직접 타격)
+            state.hitType = 'hp';
+            state.gameStats.hp -= damage;
+        }
+
+        updateHud();
+
+        if(state.gameStats.hp <= 0) {
+            alert('신호 두절. 에반게리온 활동 정지.\n최종 점수: ' + state.score);
+            location.reload();
+        }
+    }
+
+    // === 3. 게임 엔진 (Canvas) ===
+    const canvas = document.getElementById('game-canvas'); const ctx = canvas.getContext('2d');
+    let player = { x:0, y:0, r:20 }; let bullets = [], enemies = [], keys = {}, mouse = {x:0, y:0}; let frames = 0;
+    let beamActive = false, beamTimer = 0;
+
+    function resize() { canvas.width=window.innerWidth; canvas.height=window.innerHeight; }
+    window.addEventListener('resize', resize);
+    window.addEventListener('keydown', e => { keys[e.code] = true; if(e.code === 'KeyZ' && state.gauge >= 100 && !state.isUlt) activateUlt(); });
+    window.addEventListener('keyup', e => keys[e.code] = false);
+    window.addEventListener('mousemove', e => { mouse.x=e.clientX; mouse.y=e.clientY; });
+    window.addEventListener('mousedown', () => { if(!state.isUlt || UNITS[state.unitIdx].ultType !== 'positron') fireWeapon(); });
+
+    function startGameLoop() { resize(); player.x = canvas.width/2; player.y = canvas.height/2; animate(); }
+
+    // (궁극기 및 발사 로직은 이전과 동일하여 축약)
+    function activateUlt() { state.isUlt = true; state.gauge = 0; updateHud();
+        const type = UNITS[state.unitIdx].ultType;
+        if(type === 'awakening') { state.ultTimer = 300; state.gameStats.hp = state.gameStats.maxHp; state.gameStats.atField = state.gameStats.maxAtField; } // 각성시 완전 회복
+        else if(type === 'beast') { state.ultTimer = 300; } 
+        else if(type === 'positron') { state.ultTimer = 60; firePositronBeam(); }
+    }
+    function fireWeapon() { /* ... (이전 코드 참조) ... */ 
+        let fireRate = state.gameStats.rate;
+        if(state.isUlt && UNITS[state.unitIdx].ultType === 'beast') fireRate = 5;
+        if(frames % fireRate !== 0 && !keys['Space']) return;
+        let life = state.gameStats.range; let speed = 15; let size = 5;
+        if(state.unitIdx === 2) { life = 8; speed = 25; size = 20; }
+        if(state.isUlt && UNITS[state.unitIdx].ultType === 'awakening') { size = 10; life = 800; }
+        const angle = Math.atan2(mouse.y - player.y, mouse.x - player.x);
+        bullets.push({ x: player.x, y: player.y, vx: Math.cos(angle)*speed, vy: Math.sin(angle)*speed, life: life, size: size, isSpear: (state.isUlt && UNITS[state.unitIdx].ultType === 'awakening')});
+    }
+    function firePositronBeam() { /* ... (이전 코드 참조) ... */ beamActive = true; beamTimer = 30;
+        const angle = Math.atan2(mouse.y - player.y, mouse.x - player.x);
+        enemies.forEach(e => {
+            const dx = e.x - player.x; const dy = e.y - player.y;
+            let diff = Math.abs(angle - Math.atan2(dy, dx)); if(diff > Math.PI) diff = 2*Math.PI - diff;
+            if(diff < 0.1) e.hp -= 9999;
+        });
+    }
+    // 사키엘 그리기 (이전과 동일)
+    function drawSachiel(ctx, x, y, size) { /* ... (이전 코드 참조: 귀여운 사키엘 그리기) ... */ 
+        ctx.save(); ctx.translate(x, y); ctx.fillStyle = '#1a1a2e'; ctx.beginPath(); ctx.ellipse(0, 10, size*0.6, size*0.8, 0, 0, Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.moveTo(-size*0.6, -size*0.2); ctx.lineTo(-size, -size*0.8); ctx.lineTo(-size*0.4, -size*0.8); ctx.fillStyle = '#ddd'; ctx.fill();
+        ctx.beginPath(); ctx.moveTo(size*0.6, -size*0.2); ctx.lineTo(size, -size*0.8); ctx.lineTo(size*0.4, -size*0.8); ctx.fill();
+        ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.moveTo(0, size*0.2); ctx.bezierCurveTo(-size*0.4, -size*0.5, size*0.4, -size*0.5, 0, size*0.2); ctx.fill();
+        ctx.fillStyle = '#000'; ctx.beginPath(); ctx.arc(-size*0.1, -size*0.1, size*0.05, 0, Math.PI*2); ctx.arc(size*0.1, -size*0.1, size*0.05, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = '#ff0000'; ctx.beginPath(); ctx.arc(0, size*0.4, size*0.15, 0, Math.PI*2); ctx.fill(); ctx.shadowBlur = 10; ctx.shadowColor = 'red'; ctx.stroke(); ctx.restore();
+    }
+
+    // 플레이어 그리기 (피격 효과 추가)
+    function drawPlayer(ctx) {
+        ctx.save(); ctx.translate(player.x, player.y);
+        
+        // --- 피격 효과 (AT필드 vs HP) ---
+        if (state.hitFlashTimer > 0) {
+            state.hitFlashTimer--;
+            if (state.hitType === 'atf') {
+                // AT 필드 피격: 주황색 육각형 파동
+                ctx.beginPath();
+                for (let i = 0; i < 6; i++) {
+                    ctx.lineTo(40 * Math.cos(i * Math.PI / 3), 40 * Math.sin(i * Math.PI / 3));
+                }
+                ctx.closePath();
+                ctx.strokeStyle = `rgba(255, 165, 0, ${state.hitFlashTimer / 10})`; // 주황색 투명도 조절
+                ctx.lineWidth = 5;
+                ctx.stroke();
+            } else {
+                // HP 피격: 본체가 붉게 깜빡임
+                ctx.shadowColor = 'red'; ctx.shadowBlur = 30 * (state.hitFlashTimer / 10);
+            }
+        }
+        
+        // (나머지 그리기 로직 동일)
+        if(state.unitIdx === 1 && !state.isUlt) { const angle = Math.atan2(mouse.y - player.y, mouse.x - player.x); ctx.rotate(angle); ctx.fillStyle = '#fdc'; ctx.beginPath(); ctx.moveTo(20, -30); ctx.lineTo(40, 0); ctx.lineTo(20, 30); ctx.lineTo(15, 0); ctx.fill(); ctx.rotate(-angle); }
+        if(state.unitIdx === 0 && state.isUlt) { ctx.save(); ctx.rotate(frames * 0.2); ctx.strokeStyle = '#d00'; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(-60, 0); ctx.lineTo(60, 0); ctx.stroke(); ctx.beginPath(); ctx.moveTo(0, -60); ctx.lineTo(0, 60); ctx.stroke(); ctx.restore(); ctx.beginPath(); ctx.arc(0,0, 40, 0, Math.PI*2); ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.stroke(); }
+        if(state.unitIdx === 2 && state.isUlt) { ctx.shadowBlur = 20; ctx.shadowColor = '#0f0'; }
+        ctx.fillStyle = UNITS[state.unitIdx].color; ctx.beginPath(); ctx.arc(0, 0, player.r, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = UNITS[state.unitIdx].subColor; ctx.beginPath(); ctx.arc(0, -5, 5, 0, Math.PI*2); ctx.fill();
+        if(state.unitIdx === 1 && state.isUlt) { const angle = Math.atan2(mouse.y - player.y, mouse.x - player.x); ctx.rotate(angle); ctx.fillStyle = '#44f'; ctx.fillRect(0, -5, 60, 10); if(beamActive) { ctx.shadowBlur = 20; ctx.shadowColor = '#fe0'; ctx.fillStyle = '#fff'; ctx.fillRect(60, -20, 2000, 40); ctx.fillStyle = '#fe0'; ctx.fillRect(60, -10, 2000, 20); ctx.shadowBlur = 0; }}
+        ctx.restore();
+    }
+
+    function animate() {
+        frames++; ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.strokeStyle = 'rgba(255,165,0,0.1)'; ctx.lineWidth = 1;
+        for(let i=0; i<canvas.width; i+=100) { ctx.beginPath(); ctx.moveTo(i,0); ctx.lineTo(i, canvas.height); ctx.stroke(); }
+
+        if(state.isUlt) { state.ultTimer--; if(state.ultTimer <= 0) { state.isUlt = false; beamActive = false; }}
+        if(beamActive) beamTimer--;
+
+        let moveSpd = state.gameStats.speed;
+        if(state.unitIdx === 1 && state.isUlt) moveSpd = 0;
+        if(keys['KeyW']) player.y -= moveSpd; if(keys['KeyS']) player.y += moveSpd; if(keys['KeyA']) player.x -= moveSpd; if(keys['KeyD']) player.x += moveSpd;
+        player.x = Math.max(20, Math.min(canvas.width-20, player.x)); player.y = Math.max(20, Math.min(canvas.height-20, player.y));
+
+        drawPlayer(ctx);
+
+        // 총알 처리 (이전과 동일)
+        for(let i=bullets.length-1; i>=0; i--) { let b = bullets[i]; b.x += b.vx; b.y += b.vy; b.life--; ctx.save(); ctx.translate(b.x, b.y); ctx.rotate(Math.atan2(b.vy, b.vx)); if(b.isSpear) { ctx.strokeStyle = '#d00'; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(-10,0); ctx.lineTo(10,0); ctx.moveTo(5,-3); ctx.lineTo(10,0); ctx.lineTo(5,3); ctx.stroke(); } else if(state.unitIdx === 2 && !state.isUlt) { ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.moveTo(0,0); ctx.lineTo(-10,-5); ctx.lineTo(10,0); ctx.lineTo(-10,5); ctx.fill(); } else { ctx.fillStyle = UNITS[state.unitIdx].subColor; ctx.beginPath(); ctx.arc(0,0, b.size, 0, Math.PI*2); ctx.fill(); } ctx.restore(); let hit = false; for(let j=enemies.length-1; j>=0; j--) { let e = enemies[j]; let dist = Math.hypot(e.x - b.x, e.y - b.y); if(dist < e.size + b.size) { let dmg = state.gameStats.damage; if(state.isUlt && UNITS[state.unitIdx].ultType==='beast') dmg *= 2; e.hp -= dmg; hit = true; if(e.hp <= 0) { enemies.splice(j, 1); state.score += 10; if(state.gauge < 100) { state.gauge += 5; if(state.gauge > 100) state.gauge = 100; } updateHud(); } break; } } if((hit && !b.isSpear) || b.life <= 0) bullets.splice(i, 1); }
+
+        // 적 처리 및 플레이어 충돌 로직 변경
+        if(frames % 60 === 0) { const angle = Math.random()*Math.PI*2; const r = Math.max(canvas.width, canvas.height)/2 + 50; enemies.push({ x: canvas.width/2 + Math.cos(angle)*r, y: canvas.height/2 + Math.sin(angle)*r, size: 25, hp: 30 + state.score/5, speed: 1 + Math.random() }); }
+        enemies.forEach((e, idx) => {
+            let angle = Math.atan2(player.y - e.y, player.x - e.x); e.x += Math.cos(angle) * e.speed; e.y += Math.sin(angle) * e.speed; drawSachiel(ctx, e.x, e.y, e.size);
+            let dist = Math.hypot(player.x - e.x, player.y - e.y);
+            if(dist < player.r + e.size) {
+                // 충돌 시 새로운 데미지 함수 호출 (데미지 20으로 설정)
+                playerHit(20);
+                e.x -= Math.cos(angle)*30; e.y -= Math.sin(angle)*30; // 넉백
+            }
+        });
+        requestAnimationFrame(animate);
+    }
+</script>
+</body>
+</html>
